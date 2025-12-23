@@ -15,6 +15,9 @@ function error_handler {
 }
 trap error_handler ERR
 
+# Directory where this script lives (so zip paths are resolved reliably)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 ############################################
 # LOAD CONFIGURATION
 ############################################
@@ -155,8 +158,8 @@ cd "$APP_BASE_DIR"
 ############################################
 echo "📦 Extracting backend and frontend..."
 rm -rf backend frontend
-unzip -oq "$BACKEND_ZIP" -d backend
-unzip -oq "$FRONTEND_ZIP" -d frontend
+unzip -oq "$SCRIPT_DIR/$BACKEND_ZIP" -d backend
+unzip -oq "$SCRIPT_DIR/$FRONTEND_ZIP" -d frontend
 
 ############################################
 # MYSQL SETUP (ROOT PASSWORD OPTIONAL)
@@ -213,7 +216,65 @@ cd "$APP_BASE_DIR/backend"
 
 npm install
 npx prisma generate
-npx prisma db push
+# Determine DB client for checks (use DB credentials from config)
+echo "🔍 Checking database schema state..."
+if [ -z "$DB_HOST" ]; then DB_HOST=localhost; fi
+if [ -z "$DB_PORT" ]; then DB_PORT=3306; fi
+if [ -z "$DB_PASSWORD" ]; then
+  MYSQL_CLIENT_CMD=(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -s)
+  MYSQLDUMP_PWD_FLAG=""
+else
+  MYSQL_CLIENT_CMD=(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -N -s)
+  MYSQLDUMP_PWD_FLAG="-p$DB_PASSWORD"
+fi
+
+TABLE_COUNT=$("${MYSQL_CLIENT_CMD[@]}" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';" 2>/dev/null || echo "-1")
+
+if [ "$TABLE_COUNT" = "-1" ]; then
+  echo "⚠️ Could not query information_schema. Ensure database credentials are correct and the DB server is reachable."
+  echo "   Attempting a safe 'prisma db push' may still work, but consider fixing connectivity first."
+  npx prisma db push
+elif [ "$TABLE_COUNT" -eq 0 ]; then
+  echo "✅ Database $DB_NAME is empty — applying schema with prisma db push"
+  npx prisma db push
+else
+  echo "⚠️ Database $DB_NAME already contains $TABLE_COUNT table(s). Creating a SQL backup before applying changes."
+  BACKUP_FILE="$SCRIPT_DIR/${DB_NAME}_backup_$(date +%Y%m%d_%H%M%S).sql"
+  if command -v mysqldump >/dev/null 2>&1; then
+    echo "📦 Dumping existing database to $BACKUP_FILE"
+    mysqldump -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${MYSQLDUMP_PWD_FLAG} "$DB_NAME" > "$BACKUP_FILE" 2>/dev/null || echo "⚠️ mysqldump failed — check credentials/permissions"
+  else
+    echo "⚠️ mysqldump not found — skipping backup. Install mysqldump or ensure you have a backup before proceeding."
+  fi
+
+  echo "ℹ️ Applying Prisma schema changes with 'prisma db push' (non-migration, non-destructive by default)."
+  echo "   Note: For production, prefer Prisma Migrate for safe, reviewable migrations."
+  npx prisma db push || echo "⚠️ 'prisma db push' returned a non-zero exit code — inspect the output above."
+fi
+# Build backend (if a build script exists, e.g., for Next.js)
+if npm run | grep -q "build"; then
+  echo "📦 Building backend..."
+  npm run build
+fi
+
+############################################
+# FRONTEND SETUP
+############################################
+echo "🔧 Setting up frontend..."
+cd "$APP_BASE_DIR/frontend"
+
+if [ -f package.json ]; then
+  npm install
+  # Build frontend (Next.js or other frameworks typically expose a 'build' script)
+  if npm run | grep -q "build"; then
+    echo "📦 Building frontend..."
+    npm run build
+  else
+    echo "ℹ️ No build script found in frontend package.json; skipping build step."
+  fi
+else
+  echo "⚠️ frontend/package.json not found; skipping npm install/build for frontend."
+fi
 
 ############################################
 # PM2 CONFIGURATION
