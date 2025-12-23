@@ -19,7 +19,7 @@ echo "🚀 Starting setup for environment: $NODE_ENV"
 REQUIRED_VARS=(
   APP_BASE_DIR BACKEND_ZIP FRONTEND_ZIP
   BACKEND_PORT FRONTEND_PORT
-  MYSQL_ROOT_PASSWORD DB_NAME DB_USER DB_PASSWORD
+  DB_NAME DB_USER DB_PASSWORD
   SYSTEM_USER NODE_VERSION
 )
 
@@ -66,32 +66,34 @@ cd "$APP_BASE_DIR"
 # UNZIP APPLICATIONS
 ############################################
 echo "📦 Extracting backend and frontend..."
-
 rm -rf backend frontend
 unzip -oq "../$BACKEND_ZIP" -d backend
 unzip -oq "../$FRONTEND_ZIP" -d frontend
 
 ############################################
-# MYSQL SETUP (NO SCHEMA IMPORT)
+# MYSQL SETUP (ROOT PASSWORD OPTIONAL)
 ############################################
 echo "🗄️ Configuring MySQL..."
 
-sudo mysql <<EOF
-ALTER USER 'root'@'localhost'
-IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASSWORD';
-FLUSH PRIVILEGES;
+if [ -z "$MYSQL_ROOT_PASSWORD" ]; then
+  echo "ℹ️ Using MySQL socket authentication (no root password)"
+  MYSQL_CMD="sudo mysql"
+else
+  echo "ℹ️ Using MySQL root password authentication"
+  MYSQL_CMD="mysql -uroot -p$MYSQL_ROOT_PASSWORD"
+fi
 
+$MYSQL_CMD <<EOF
 CREATE DATABASE IF NOT EXISTS $DB_NAME;
-CREATE USER IF NOT EXISTS '$DB_USER'@'localhost'
-IDENTIFIED BY '$DB_PASSWORD';
+CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
 ############################################
-# BACKEND ENV FILE
+# ENV FILES
 ############################################
-echo "⚙️ Creating backend environment file..."
+echo "⚙️ Creating environment files..."
 
 cat <<EOF > backend/.env.production
 NODE_ENV=$NODE_ENV
@@ -99,11 +101,6 @@ PORT=$BACKEND_PORT
 DATABASE_URL=$BACKEND_DATABASE_URL
 JWT_SECRET=$BACKEND_JWT_SECRET
 EOF
-
-############################################
-# FRONTEND ENV FILE
-############################################
-echo "⚙️ Creating frontend environment file..."
 
 cat <<EOF > frontend/.env.production
 NODE_ENV=$NODE_ENV
@@ -115,23 +112,16 @@ EOF
 # BACKEND SETUP (PRISMA)
 ############################################
 echo "🔧 Setting up backend..."
-
 cd "$APP_BASE_DIR/backend"
 
-echo "📦 Installing backend dependencies..."
 npm install
-
-echo "🧬 Generating Prisma client..."
 npx prisma generate
-
-echo "🗄️ Pushing Prisma schema to database..."
 npx prisma db push
 
 ############################################
 # PM2 CONFIGURATION
 ############################################
 echo "⚙️ Creating PM2 ecosystem file..."
-
 cd "$APP_BASE_DIR"
 
 cat <<EOF > ecosystem.config.js
@@ -142,18 +132,14 @@ module.exports = {
       cwd: "$APP_BASE_DIR/backend",
       script: "node_modules/next/dist/bin/next",
       args: "start -p $BACKEND_PORT",
-      env: {
-        NODE_ENV: "$NODE_ENV"
-      }
+      env: { NODE_ENV: "$NODE_ENV" }
     },
     {
       name: "frontend",
       cwd: "$APP_BASE_DIR/frontend",
       script: "node_modules/next/dist/bin/next",
       args: "start -p $FRONTEND_PORT",
-      env: {
-        NODE_ENV: "$NODE_ENV"
-      }
+      env: { NODE_ENV: "$NODE_ENV" }
     }
   ]
 };
@@ -162,8 +148,7 @@ EOF
 ############################################
 # START APPLICATIONS
 ############################################
-echo "▶️ Starting applications with PM2..."
-
+echo "▶️ Starting applications..."
 pm2 delete backend frontend >/dev/null 2>&1 || true
 pm2 start ecosystem.config.js
 pm2 save
@@ -172,7 +157,6 @@ pm2 save
 # ENABLE PM2 ON BOOT
 ############################################
 if [ "$ENABLE_PM2_STARTUP" = "true" ]; then
-  echo "🔁 Enabling PM2 startup..."
   pm2 startup systemd -u "$SYSTEM_USER" --hp "/home/$SYSTEM_USER"
   sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "$SYSTEM_USER" --hp "/home/$SYSTEM_USER"
 fi
@@ -181,5 +165,5 @@ fi
 # DONE
 ############################################
 echo "✅ Setup complete!"
-echo "🌐 Frontend running on port $FRONTEND_PORT"
-echo "🔌 Backend running on port $BACKEND_PORT"
+echo "🌐 Frontend → port $FRONTEND_PORT"
+echo "🔌 Backend  → port $BACKEND_PORT"
