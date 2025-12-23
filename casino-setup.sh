@@ -30,6 +30,12 @@ export $(grep -v '^#' configuration.properties | xargs)
 
 echo "🚀 Starting setup for environment: $NODE_ENV"
 
+# If APP_BASE_DIR is unset, '.', or the literal 'PWD' (from properties), resolve it to the current working directory
+if [ -z "$APP_BASE_DIR" ] || [ "$APP_BASE_DIR" = "." ] || [ "$APP_BASE_DIR" = "PWD" ] || [ "$APP_BASE_DIR" = "\$PWD" ]; then
+  APP_BASE_DIR="$PWD"
+  echo "ℹ️ APP_BASE_DIR resolved to: $APP_BASE_DIR"
+fi
+
 ############################################
 # VALIDATION
 ############################################
