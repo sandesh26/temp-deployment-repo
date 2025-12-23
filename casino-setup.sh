@@ -50,11 +50,14 @@ done
 echo "📦 Installing system dependencies..."
 
 # Prefer apt (Debian/Ubuntu). If not present, try Homebrew (macOS).
+PKG_MANAGER=""
 if command -v apt >/dev/null 2>&1; then
+  PKG_MANAGER="apt"
   echo "ℹ️ Detected apt (Linux). Installing via apt..."
   sudo apt update -y
   sudo apt install -y curl unzip mysql-server
 elif command -v brew >/dev/null 2>&1; then
+  PKG_MANAGER="brew"
   echo "ℹ️ Detected Homebrew (macOS). Installing via brew..."
   brew update
   # Install curl/unzip if missing
@@ -70,10 +73,41 @@ elif command -v brew >/dev/null 2>&1; then
   fi
   brew services start mysql || true
 else
-  echo "❌ No supported package manager found (apt or brew)."
-  echo "   This script expects Debian/Ubuntu (apt) or macOS with Homebrew (brew)."
-  echo "   Please install required dependencies manually: curl, unzip, mysql, node, npm."
-  exit 1
+  echo "⚠️ No apt or brew detected. Will check if required commands already exist and provide actionable instructions if not."
+  # Determine OS for tailored instructions
+  UNAME=$(uname -s)
+  SUGGEST_INSTALLER=""
+  if [ "$UNAME" = "Darwin" ]; then
+    SUGGEST_INSTALLER="Homebrew (https://brew.sh)"
+  else
+    SUGGEST_INSTALLER="apt (Debian/Ubuntu)"
+  fi
+
+  # Check required commands and collect missing ones
+  MISSING=()
+  for cmd in curl unzip mysql node npm; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      MISSING+=("$cmd")
+    fi
+  done
+
+  if [ ${#MISSING[@]} -eq 0 ]; then
+    echo "ℹ️ All required tools already present: skipping package installation."
+  else
+    echo "❌ Missing required tools: ${MISSING[*]}"
+    echo "   This system doesn't have apt or Homebrew detected."
+    echo "   Suggested next steps:"
+    if [ "$UNAME" = "Darwin" ]; then
+      echo "     1) Install Homebrew:"
+      echo "        /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+      echo "     2) Then install missing tools: brew install ${MISSING[*]}"
+    else
+      echo "     1) On Debian/Ubuntu install apt if missing or run as a distro with apt."
+      echo "     2) Install missing tools: sudo apt update && sudo apt install -y ${MISSING[*]}"
+    fi
+    echo "   Alternatively, install these tools manually and re-run the script."
+    exit 1
+  fi
 fi
 
 ############################################
@@ -81,8 +115,23 @@ fi
 ############################################
 if ! command -v node >/dev/null 2>&1; then
   echo "📦 Installing Node.js $NODE_VERSION..."
-  curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
-  sudo apt install -y nodejs
+  if [ "$PKG_MANAGER" = "apt" ]; then
+    curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
+    sudo apt install -y nodejs
+  elif [ "$PKG_MANAGER" = "brew" ]; then
+    # Try installing node@<version> via brew, fall back to node
+    if brew info "node@${NODE_VERSION}" >/dev/null 2>&1; then
+      brew install "node@${NODE_VERSION}" || brew install node
+      # attempt to link the versioned node (may require manual steps if permissions differ)
+      brew link --force --overwrite "node@${NODE_VERSION}" >/dev/null 2>&1 || true
+    else
+      brew install node || true
+    fi
+  else
+    echo "⚠️ No supported package manager available to install Node.js."
+    echo "   Please install Node.js ${NODE_VERSION} manually and re-run the script."
+    exit 1
+  fi
 fi
 
 ############################################
