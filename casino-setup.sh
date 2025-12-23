@@ -254,8 +254,19 @@ pm2 save
 # ENABLE PM2 ON BOOT
 ############################################
 if [ "$ENABLE_PM2_STARTUP" = "true" ]; then
-  pm2 startup systemd -u "$SYSTEM_USER" --hp "/home/$SYSTEM_USER"
-  sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "$SYSTEM_USER" --hp "/home/$SYSTEM_USER"
+  # Only attempt to register PM2 startup if the init system is supported
+  if command -v systemctl >/dev/null 2>&1; then
+    echo "ℹ️ Configuring PM2 startup for systemd..."
+    pm2 startup systemd -u "$SYSTEM_USER" --hp "/home/$SYSTEM_USER"
+    sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "$SYSTEM_USER" --hp "/home/$SYSTEM_USER"
+  elif [ "$(uname -s)" = "Darwin" ]; then
+    # macOS uses launchd
+    echo "ℹ️ Configuring PM2 startup for launchd (macOS)..."
+    pm2 startup launchd -u "$SYSTEM_USER" --hp "/Users/$SYSTEM_USER" || true
+  else
+    echo "⚠️ PM2 startup not configured: unsupported init system on this platform."
+    echo "   Skipping 'pm2 startup' — run the appropriate pm2 startup command manually on this host if you need it."
+  fi
 fi
 
 ############################################
