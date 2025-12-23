@@ -1,5 +1,19 @@
 #!/bin/bash
-set -e
+set -eE -o pipefail
+
+# Improved error reporting: trap ERR to print failing command, exit code and line
+function error_handler {
+  local exit_code=$?
+  local failed_cmd="${BASH_COMMAND:-unknown}"
+  local failed_line="${BASH_LINENO[0]:-unknown}"
+  echo "❌ Script error" >&2
+  echo "   Command : $failed_cmd" >&2
+  echo "   Exit code: $exit_code" >&2
+  echo "   Line    : $failed_line" >&2
+  echo "Tip: re-run the script with 'bash -x casino-setup.sh' for a full trace." >&2
+  exit $exit_code
+}
+trap error_handler ERR
 
 ############################################
 # LOAD CONFIGURATION
