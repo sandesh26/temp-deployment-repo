@@ -213,9 +213,25 @@ EOF
 ############################################
 echo "🔧 Setting up backend..."
 cd "$APP_BASE_DIR/backend"
+# Install backend dependencies only if not already present
+if [ -f package.json ]; then
+  if [ -d node_modules ]; then
+    echo "ℹ️ backend node_modules found, skipping npm install"
+  else
+    echo "📦 Installing backend dependencies..."
+    npm install
+  fi
+else
+  echo "⚠️ backend/package.json not found; skipping npm install"
+fi
 
-npm install
-npx prisma generate
+# Run prisma generate if possible
+if command -v npx >/dev/null 2>&1 || [ -d node_modules/.bin ]; then
+  echo "🔧 Running prisma generate (if schema present)..."
+  npx prisma generate || echo "⚠️ prisma generate failed or not configured"
+else
+  echo "⚠️ npx or local node_modules not found; skipping prisma generate"
+fi
 # Determine DB client for checks (use DB credentials from config)
 echo "🔍 Checking database schema state..."
 if [ -z "$DB_HOST" ]; then DB_HOST=localhost; fi
@@ -251,10 +267,16 @@ else
   echo "   Note: For production, prefer Prisma Migrate for safe, reviewable migrations."
   npx prisma db push || echo "⚠️ 'prisma db push' returned a non-zero exit code — inspect the output above."
 fi
-# Build backend (if a build script exists, e.g., for Next.js)
-if npm run | grep -q "build"; then
-  echo "📦 Building backend..."
-  npm run build
+# If build artifacts are already present (e.g. Next.js .next), skip building to avoid duplicate work
+if [ -d ".next" ] || [ -d "build" ]; then
+  echo "ℹ️ Backend build artifacts found, skipping backend build"
+else
+  if npm run | grep -q "build"; then
+    echo "📦 Building backend..."
+    npm run build || echo "⚠️ backend build failed"
+  else
+    echo "ℹ️ No backend build script found; skipping build step."
+  fi
 fi
 
 ############################################
@@ -264,13 +286,22 @@ echo "🔧 Setting up frontend..."
 cd "$APP_BASE_DIR/frontend"
 
 if [ -f package.json ]; then
-  npm install
-  # Build frontend (Next.js or other frameworks typically expose a 'build' script)
-  if npm run | grep -q "build"; then
-    echo "📦 Building frontend..."
-    npm run build
+  if [ -d node_modules ]; then
+    echo "ℹ️ frontend node_modules found, skipping npm install"
   else
-    echo "ℹ️ No build script found in frontend package.json; skipping build step."
+    echo "📦 Installing frontend dependencies..."
+    npm install
+  fi
+  # If build artifacts already exist (Next.js .next or generic build/ directory), skip build
+  if [ -d ".next" ] || [ -d "build" ]; then
+    echo "ℹ️ Frontend build artifacts found, skipping frontend build"
+  else
+    if npm run | grep -q "build"; then
+      echo "📦 Building frontend..."
+      npm run build || echo "⚠️ frontend build failed"
+    else
+      echo "ℹ️ No build script found in frontend package.json; skipping build step."
+    fi
   fi
 else
   echo "⚠️ frontend/package.json not found; skipping npm install/build for frontend."
