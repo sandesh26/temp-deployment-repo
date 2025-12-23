@@ -48,8 +48,33 @@ done
 # SYSTEM UPDATE & DEPENDENCIES
 ############################################
 echo "📦 Installing system dependencies..."
-sudo apt update -y
-sudo apt install -y curl unzip mysql-server
+
+# Prefer apt (Debian/Ubuntu). If not present, try Homebrew (macOS).
+if command -v apt >/dev/null 2>&1; then
+  echo "ℹ️ Detected apt (Linux). Installing via apt..."
+  sudo apt update -y
+  sudo apt install -y curl unzip mysql-server
+elif command -v brew >/dev/null 2>&1; then
+  echo "ℹ️ Detected Homebrew (macOS). Installing via brew..."
+  brew update
+  # Install curl/unzip if missing
+  if ! command -v curl >/dev/null 2>&1; then
+    brew install curl
+  fi
+  if ! command -v unzip >/dev/null 2>&1; then
+    brew install unzip
+  fi
+  # Install MySQL via brew and start service
+  if ! brew list mysql >/dev/null 2>&1; then
+    brew install mysql
+  fi
+  brew services start mysql || true
+else
+  echo "❌ No supported package manager found (apt or brew)."
+  echo "   This script expects Debian/Ubuntu (apt) or macOS with Homebrew (brew)."
+  echo "   Please install required dependencies manually: curl, unzip, mysql, node, npm."
+  exit 1
+fi
 
 ############################################
 # INSTALL NODE.JS
