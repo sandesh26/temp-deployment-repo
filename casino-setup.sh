@@ -19,7 +19,7 @@ echo "🚀 Starting setup for environment: $NODE_ENV"
 REQUIRED_VARS=(
   APP_BASE_DIR BACKEND_ZIP FRONTEND_ZIP
   BACKEND_PORT FRONTEND_PORT
-  DB_NAME DB_USER DB_PASSWORD
+  DB_NAME DB_USER
   SYSTEM_USER NODE_VERSION
 )
 
@@ -83,9 +83,18 @@ else
   MYSQL_CMD="mysql -uroot -p$MYSQL_ROOT_PASSWORD"
 fi
 
+# Build the password clause for the user
+if [ -z "$DB_PASSWORD" ]; then
+  PASSWORD_CLAUSE=""
+  echo "ℹ️ Creating database user without a password"
+else
+  PASSWORD_CLAUSE="IDENTIFIED BY '$DB_PASSWORD'"
+  echo "ℹ️ Creating database user with password"
+fi
+
 $MYSQL_CMD <<EOF
 CREATE DATABASE IF NOT EXISTS $DB_NAME;
-CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' $PASSWORD_CLAUSE;
 GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 EOF
