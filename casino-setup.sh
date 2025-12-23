@@ -319,22 +319,27 @@ fi
 echo "⚙️ Creating PM2 ecosystem file..."
 cd "$APP_BASE_DIR"
 
-cat <<EOF > ecosystem.config.js
+cat <<'EOF' > ecosystem.config.js
+const path = require('path');
+
+// Use environment variables at runtime to resolve paths. This avoids embedding
+// platform-specific path separators into the generated file which can break on
+// Windows when APP_BASE_DIR contains backslashes.
 module.exports = {
   apps: [
     {
-      name: "backend",
-      cwd: "$APP_BASE_DIR/backend",
-      script: "node_modules/next/dist/bin/next",
-      args: "start -p $BACKEND_PORT",
-      env: { NODE_ENV: "$NODE_ENV" }
+      name: 'backend',
+      cwd: path.resolve(process.env.APP_BASE_DIR || __dirname, 'backend'),
+      script: 'node_modules/next/dist/bin/next',
+      args: `start -p ${process.env.BACKEND_PORT || 3001}`,
+      env: { NODE_ENV: process.env.NODE_ENV || 'production' }
     },
     {
-      name: "frontend",
-      cwd: "$APP_BASE_DIR/frontend",
-      script: "node_modules/next/dist/bin/next",
-      args: "start -p $FRONTEND_PORT",
-      env: { NODE_ENV: "$NODE_ENV" }
+      name: 'frontend',
+      cwd: path.resolve(process.env.APP_BASE_DIR || __dirname, 'frontend'),
+      script: 'node_modules/next/dist/bin/next',
+      args: `start -p ${process.env.FRONTEND_PORT || 3000}`,
+      env: { NODE_ENV: process.env.NODE_ENV || 'production' }
     }
   ]
 };
