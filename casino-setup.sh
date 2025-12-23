@@ -155,8 +155,8 @@ cd "$APP_BASE_DIR"
 ############################################
 echo "📦 Extracting backend and frontend..."
 rm -rf backend frontend
-unzip -oq "../$BACKEND_ZIP" -d backend
-unzip -oq "../$FRONTEND_ZIP" -d frontend
+unzip -oq "$BACKEND_ZIP" -d backend
+unzip -oq "$FRONTEND_ZIP" -d frontend
 
 ############################################
 # MYSQL SETUP (ROOT PASSWORD OPTIONAL)
