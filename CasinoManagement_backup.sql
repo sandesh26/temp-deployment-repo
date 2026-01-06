@@ -416,7 +416,7 @@ CREATE TABLE `GameCatalog` (
   `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (`game_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -510,7 +510,7 @@ CREATE TABLE `MachineGame` (
   KEY `MachineGame_game_id_fkey` (`game_id`),
   CONSTRAINT `MachineGame_game_id_fkey` FOREIGN KEY (`game_id`) REFERENCES `GameCatalog` (`game_id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `MachineGame_slot_machine_id_fkey` FOREIGN KEY (`slot_machine_id`) REFERENCES `SlotMachine` (`machine_id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=126 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=126 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
