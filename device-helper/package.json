@@ -1,0 +1,16 @@
+{
+  "name": "device-helper",
+  "version": "1.0.0",
+  "description": "Local device helper service",
+  "bin": "server.js",
+  "pkg": {
+    "assets": []
+  },
+  "scripts": {
+    "start": "node server.js",
+    "build": "pkg server.js --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --output device-helper"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
