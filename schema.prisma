@@ -1,0 +1,1140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  user_id        Int       @id @default(autoincrement())
+  firstName      String?
+  lastName       String?
+  full_name      String
+  address        String?
+  date_of_birth  DateTime?
+  govt_id_number String?   @unique
+  govt_id_type   String?
+  photo_url      String?
+  govt_id_proof  String?
+  email          String?   @unique
+  phone          String    @unique
+  role           Role
+  tier           String?
+  status         Status    @default(Active)
+  created_at     DateTime  @default(now())
+  barringNotes   String?
+  favouriteGames String?
+
+  // Relations
+  employee                   Employee?
+  playerCard                 PlayerCard?
+  current_machines           SlotMachine[]      @relation("CurrentPlayer")
+  cagesChanged               Cage[]             @relation("UserChangedCages")
+  cageTransactions           CageTransaction[]  @relation("CageTransactionPlayer")
+  verifiedTransactions       CageTransaction[]  @relation("CageTransactionVerifier")
+  performedTransactions      CageTransaction[]  @relation("PerformedBy")
+  tableTransactions          TableTransaction[] @relation("TableTransactionPlayer")
+  tableVerifiedTransactions  TableTransaction[] @relation("TableTransactionVerifier")
+  tablePerformedTransactions TableTransaction[] @relation("TableTransactionPerformedBy")
+  changedTables              Table[]            @relation("ChangedBy")
+
+  openedSessions CageSession[] @relation("SessionOpenedBy")
+  closedSessions CageSession[] @relation("SessionClosedBy")
+
+  gameTransactions GameTransaction[]
+
+  playerEntryLogs     PlayerEntryLog[]
+  currentTablePlayers CurrentTablePlayer[]
+}
+
+model Employee {
+  employee_id   Int     @id @default(autoincrement())
+  user_id       Int     @unique
+  username      String  @unique
+  password_hash String
+  role          String
+  access_level  Int
+  rfid_number   String?
+
+  user                       User                @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  gamingDays                 GamingDay[]         @relation("ClosedByEmployee")
+  initiatedCageVaultRequests CageVaultRequest[]  @relation("InitiatedBy")
+  reviewedCageVaultRequests  CageVaultRequest[]  @relation("ReviewedBy")
+  confirmedCageVaultRequests CageVaultRequest[]  @relation("ConfirmedBy")
+  // Table vault requests relations
+  initiatedTableVaultRequests TableVaultRequest[]  @relation("InitiatedByTable")
+  reviewedTableVaultRequests  TableVaultRequest[]  @relation("ReviewedByTable")
+  confirmedTableVaultRequests TableVaultRequest[]  @relation("ConfirmedByTable")
+  performedAuditLogs         CageVaultAuditLog[]
+  performedTableVaultAuditLogs TableVaultAuditLog[]
+
+  authorizedVaultTransactions  VaultTransaction[]    @relation("VaultTransactionAuthorizedBy")
+  performedVaultTransactions   VaultTransaction[]    @relation("VaultTransactionPerformedBy")
+  // relation back-reference for sessions
+  loginSessions                LoginSession[]
+  openedFloatBalances          FloatBalance[]        @relation("FloatBalanceOpenedBy")
+  closedFloatBalances          FloatBalance[]        @relation("FloatBalanceClosedBy")
+  // assignments created by this employee
+  assignedTableGameAssignments TableGameAssignment[]
+}
+
+// Tracks login sessions for employees (used to enforce single-machine logins and session revocation)
+model LoginSession {
+  id                 Int       @id @default(autoincrement())
+  employee_id        Int
+  jti                String?   @unique
+  session_token_hash String?
+  refresh_token_hash String?
+  machine_id         String?
+  ip_address         String?
+  created_at         DateTime  @default(now())
+  last_seen          DateTime?
+  expires_at         DateTime?
+  revoked            Boolean   @default(false)
+  logout_at          DateTime?
+
+  employee Employee @relation(fields: [employee_id], references: [employee_id], onDelete: Cascade)
+
+  @@index([employee_id])
+  @@index([jti])
+  @@index([revoked])
+  @@index([expires_at])
+}
+
+model PlayerCard {
+  card_id        Int     @id @default(autoincrement())
+  user_id        Int     @unique
+  rfid_number    String  @unique
+  pin            String
+  balance        Decimal @default(0.00)
+  loyalty_points Int     @default(0)
+  tier           String?
+
+  user         User          @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([rfid_number])
+}
+
+model SlotMachine {
+  machine_id        Int           @id @default(autoincrement())
+  machine_number    String        @unique
+  location          String?
+  current_player_id Int?
+  current_balance   Decimal       @default(0.00)
+  machine_status    MachineStatus @default(Active)
+  last_updated      DateTime?     @default(now()) @updatedAt
+  macaddress        String?       @unique
+
+  floor_id Int? // just nullable, no @default(NULL)
+
+  current_player User?  @relation("CurrentPlayer", fields: [current_player_id], references: [user_id], onDelete: SetNull)
+  floor          Floor? @relation(fields: [floor_id], references: [floor_id]) // Nullable relation
+
+  configuration SlotMachineConfiguration?
+  machineGames  MachineGame[]
+
+  @@index([machine_number])
+  @@index([current_player_id])
+  @@index([floor_id])
+}
+
+model TITO {
+  tito_id           Int        @id @default(autoincrement())
+  machine_id        Int
+  unique_identifier String     @unique
+  barcode           String     @unique
+  amount            Decimal
+  issued_at         DateTime?  @default(now())
+  redeemed_at       DateTime?
+  issued_location   String?
+  redeemed_location String?
+  status            TITOStatus @default(Generated)
+  valid_upto        DateTime?
+
+  @@index([unique_identifier])
+}
+
+model Transaction {
+  transaction_id     Int               @id @default(autoincrement())
+  card_id            Int?
+  transaction_type   TransactionType
+  amount             Decimal
+  payment_method     PaymentMethod
+  transaction_status TransactionStatus @default(Pending)
+  timestamp          DateTime?         @default(now())
+  location           String?
+
+  card PlayerCard? @relation(fields: [card_id], references: [card_id], onDelete: SetNull)
+
+  @@index([card_id])
+}
+
+model GamingDay {
+  gaming_day_id Int       @id @default(autoincrement())
+  start_time    DateTime
+  end_time      DateTime?
+  status        String // Can be 'OPEN' or 'CLOSED'
+  closed_by     Int? // Reference to Employee
+  closed_at     DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  closedBy               Employee?               @relation("ClosedByEmployee", fields: [closed_by], references: [employee_id], onDelete: SetNull)
+  cages                  Cage[]
+  cageChipDenominations  CageChipDenomination[]
+  cageTransactions       CageTransaction[]
+  sessions               CageSession[] // <--- Add this line
+  tables                 Table[]                 @relation("GamingDay")
+  tableChipDenominations TableChipDenomination[]
+  floatBalances          FloatBalance[]
+  playerEntryLogs        PlayerEntryLog[]
+  currentTablePlayers    CurrentTablePlayer[]
+  TableTransaction       TableTransaction[]
+}
+
+enum GamingDayStatus {
+  OPEN
+  CLOSED
+}
+
+enum Role {
+  Player
+  Reception_Executive
+  Reception_Sr_Executive
+  Reception_Supervisor
+  Cage_Executive
+  Cage_Supervisor
+  Cage_Manager
+  Slot_Executive
+  Slot_Supervisor
+  Slot_Manager
+  Pit_Supervisor
+  Sr_Pit_Manager
+  Shift_Manager
+  Casino_Asst_Manager
+  Casino_Manager
+  Admin
+  Super_Admin
+  Technical_Executive
+  Counter_Operator
+  Receptionist
+  SuperAdmin
+  Technical
+  Dealer
+  Inspector
+}
+
+enum Status {
+  Active
+  Inactive
+  Banned
+}
+
+enum Tier {
+  VIP
+  VVIP
+  Premium
+  Platinum
+  Gold
+  Silver
+  Bronze
+}
+
+// New table for tier configuration
+model TierTable {
+  tierid              Int      @id @default(autoincrement())
+  tiername            String   @unique
+  loyality_percentage Decimal? @db.Decimal(5, 2)
+  threshold_amount    Decimal? @db.Decimal(18, 2)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@index([tiername])
+}
+
+enum MachineStatus {
+  Discoverable
+  Prepared
+  Test
+  Live
+  Warehouse
+  Removed
+  Active
+  Inactive
+  Under_Maintenance
+}
+
+enum TITOStatus {
+  Generated
+  Redeemed
+  Expired
+}
+
+enum TransactionType {
+  Credit
+  Debit
+  Encash
+  Balance_Inquiry
+}
+
+enum PaymentMethod {
+  Cash
+  Chips
+  UPI
+  Credit_Debit_Card
+  TITO
+  VAULT_TRANSFER
+  PLAYER_CARD
+  FOREX
+}
+
+enum TransactionStatus {
+  Pending
+  Completed
+  Failed
+}
+
+enum ChipType {
+  General
+  NonNegotiable_NN
+  JunketChip_JC
+  JunketNonNegotiable_JN
+  PromoChip_PC
+  PromoNonNegotiable_PN
+}
+
+model Cage {
+  cage_id              Int        @id @default(autoincrement())
+  name                 String
+  type                 String
+  status               CageStatus @default(CLOSED)
+  terminal             String?
+  balance              Decimal    @default(0.00)
+  online_balance       Decimal    @default(0.00)
+  tito_balance         Decimal    @default(0.00)
+  chip_balance         Decimal    @default(0.00)
+  total_in             Decimal    @default(0.00)
+  total_out            Decimal    @default(0.00)
+  opening_balance      Decimal    @default(0.00)
+  opening_chip_balance Decimal    @default(0.00)
+  last_change          DateTime?
+  changed_by           Int?
+  gaming_day_id        Int?
+  macaddress           String?    @unique
+  defaultFloat         Boolean    @default(false)
+  threshold            Decimal?   @default(100000.00)
+  registered           Boolean    @default(true)
+
+  floor_id Int? // just nullable, no @default(NULL)
+
+  changedBy         User?              @relation("UserChangedCages", fields: [changed_by], references: [user_id], onDelete: SetNull)
+  gamingDay         GamingDay?         @relation(fields: [gaming_day_id], references: [gaming_day_id])
+  transactions      CageTransaction[]
+  sessions          CageSession[]
+  cageVaultRequests CageVaultRequest[]
+  floatBalances     FloatBalance[]
+
+  floor                 Floor?                 @relation(fields: [floor_id], references: [floor_id]) // Nullable relation
+  cageChipDenominations CageChipDenomination[] // <--- Add this line
+
+  @@index([gaming_day_id])
+  @@index([changed_by])
+  @@index([floor_id])
+}
+
+model CageSession {
+  session_id        Int           @id @default(autoincrement())
+  cage_id           Int
+  gaming_day_id     Int           @default(1)
+  terminal          String?
+  started_at        DateTime?
+  ended_at          DateTime?
+  opened_by         Int?
+  closed_by         Int?
+  transaction_count Int           @default(0)
+  total_amount      Decimal       @default(0.00)
+  status            SessionStatus @default(OPEN)
+
+  cage             Cage               @relation(fields: [cage_id], references: [cage_id])
+  gamingDay        GamingDay          @relation(fields: [gaming_day_id], references: [gaming_day_id])
+  openedBy         User?              @relation("SessionOpenedBy", fields: [opened_by], references: [user_id])
+  closedBy         User?              @relation("SessionClosedBy", fields: [closed_by], references: [user_id])
+  transactions     CageTransaction[]
+  TableTransaction TableTransaction[]
+
+  @@index([cage_id])
+  @@index([opened_by])
+  @@index([closed_by])
+  @@index([gaming_day_id]) // <--- Optional: add index for faster queries
+}
+
+model CageTransaction {
+  transaction_id        Int                 @id @default(autoincrement())
+  cage_id               Int
+  player_id             Int?
+  amount                Decimal
+  transaction_type      CageTransactionType
+  payment_method        PaymentMethod
+  is_manual             Boolean             @default(false)
+  requires_verification Boolean             @default(false)
+  verified_by           Int?
+  performed_by          Int
+  session_start         DateTime?
+  session_end           DateTime?
+  timestamp             DateTime            @default(now())
+  notes                 String?
+
+  gaming_day_id Int?
+  gamingDay     GamingDay? @relation(fields: [gaming_day_id], references: [gaming_day_id])
+
+  cage        Cage         @relation(fields: [cage_id], references: [cage_id])
+  player      User?        @relation("CageTransactionPlayer", fields: [player_id], references: [user_id])
+  verifier    User?        @relation("CageTransactionVerifier", fields: [verified_by], references: [user_id])
+  performedBy User         @relation("PerformedBy", fields: [performed_by], references: [user_id])
+  session_id  Int?
+  session     CageSession? @relation(fields: [session_id], references: [session_id], onDelete: SetNull)
+
+  @@index([cage_id])
+  @@index([player_id])
+  @@index([verified_by])
+  @@index([performed_by])
+  @@index([gaming_day_id])
+}
+
+enum CageStatus {
+  OPEN
+  CLOSED
+}
+
+enum SessionStatus {
+  OPEN
+  CLOSED
+  REOPENED
+}
+
+enum CageTransactionType {
+  HANDPAY
+  JACKPOT
+  TICKET_SALE
+  TICKET_REDEEM
+  EXPIRED_TICKET
+  UNREADABLE_TICKET
+  MONEY_DEBIT
+  MONEY_CREDIT
+  FILL
+  CREDIT
+  VAULT_MONEY_FILL
+  VAULT_MONEY_CREDIT
+  CAGE_OPEN
+  CHIP_FILL
+  CHIP_CREDIT
+  TITO_PURCHASE
+  TITO_REDEEM
+  CHIP_PURCHASE
+  CHIP_REDEEM
+}
+
+model Floor {
+  floor_id Int    @id @default(autoincrement())
+  name     String @unique
+
+  cages        Cage[]
+  slotMachines SlotMachine[]
+}
+
+model VaultBalance {
+  vault_id      Int      @id @default(autoincrement())
+  location_name String
+  currency_code String   @default("INR") // ✅ Default INR
+  total_cash    Decimal  @default(0.00)
+  total_chips   Decimal  @default(0.00)
+  total_assets  Decimal  @default(0.00)
+  total_online  Decimal  @default(0.00)
+  total_tito    Decimal  @default(0.00)
+  last_updated  DateTime @default(now()) @updatedAt
+
+  chipDenominations VaultChipDenomination[]
+  transactions      VaultTransaction[]
+}
+
+model VaultChipDenomination {
+  id                Int      @id @default(autoincrement())
+  vault_id          Int
+  chip_denomination Decimal
+  chip_color        String?
+  quantity          Int
+  actual_quantity   Int?
+  total_value       Decimal  @default(0.00)
+  chip_image        String?
+  last_updated      DateTime @default(now())
+  type_of_chip      ChipType @default(General)
+
+  vault VaultBalance @relation(fields: [vault_id], references: [vault_id], onDelete: Cascade)
+
+  @@index([vault_id])
+}
+
+model VaultTransaction {
+  transaction_id   Int                  @id @default(autoincrement())
+  vault_id         Int
+  transaction_type VaultTransactionType
+  asset_type       AssetType
+  denomination     Decimal
+  quantity         Int
+  total_value      Decimal              @default(0.00)
+  currency_code    String               @default("INR")
+  source           String
+  destination      String
+  reference_id     String?
+  authorized_by    Int
+  performed_by     Int
+  transaction_time DateTime             @default(now())
+  notes            String?
+  gaming_day_id    Int                  @default(0)
+  cage_id          Int                  @default(0)
+  table_id         Int                  @default(0)
+
+  vault        VaultBalance @relation(fields: [vault_id], references: [vault_id], onDelete: Cascade)
+  authorizedBy Employee     @relation("VaultTransactionAuthorizedBy", fields: [authorized_by], references: [employee_id])
+  performedBy  Employee     @relation("VaultTransactionPerformedBy", fields: [performed_by], references: [employee_id])
+
+  @@index([vault_id])
+  @@index([authorized_by])
+  @@index([performed_by])
+}
+
+enum VaultTransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+  RECONCILIATION
+  ADJUSTMENT
+}
+
+enum AssetType {
+  CASH
+  CHIP
+}
+
+model CageChipDenomination {
+  id                Int      @id @default(autoincrement())
+  chip_id           Int      @default(0)
+  cage_id           Int
+  gaming_day_id     Int
+  chip_denomination Decimal
+  type_of_chip      ChipType @default(General)
+  chip_color        String
+  quantity          Int
+  total_value       Decimal
+  recorded_at       DateTime @default(now())
+
+  cage      Cage      @relation(fields: [cage_id], references: [cage_id], onDelete: Cascade)
+  gamingDay GamingDay @relation(fields: [gaming_day_id], references: [gaming_day_id], onDelete: Cascade)
+
+  @@index([cage_id])
+  @@index([gaming_day_id])
+  @@index([chip_denomination])
+}
+
+model TableChipDenomination {
+  id                Int      @id @default(autoincrement())
+  chip_id           Int      @default(0)
+  table_id          Int
+  gaming_day_id     Int
+  chip_denomination Decimal
+  type_of_chip      ChipType @default(General)
+  chip_color        String
+  quantity          Int
+  total_value       Decimal
+  recorded_at       DateTime @default(now())
+
+  table     Table     @relation(fields: [table_id], references: [table_id], onDelete: Cascade)
+  gamingDay GamingDay @relation(fields: [gaming_day_id], references: [gaming_day_id], onDelete: Cascade)
+
+  @@index([table_id])
+  @@index([gaming_day_id])
+  @@index([chip_denomination])
+}
+
+model SlotMachineConfiguration {
+  slot_machine_id Int    @id // Primary Key, references SlotMachine.machine_id
+  configured      String // "Yes" or "No"
+
+  // MACHINE IDENTIFICATION
+  machine_id    String?
+  position      String?
+  asset_no      String?
+  serial_number String?
+  external_id   String?
+  box_server    String?
+
+  // MACHINE DATA
+  manufacturer     String?
+  machine_model    String?
+  cabinet_type     String?
+  year_of_prod     String?
+  accounting_model String?
+  mechanical_model String?
+  currency         String?
+  acc_denomination Decimal?
+  coin_value       Decimal?
+
+  // SYSTEM DATA
+  system_interface          String?
+  ticketing                 Boolean? @default(false)
+  player_tracking           Boolean? @default(false)
+  cashless                  Boolean? @default(false)
+  restricted_promo          Boolean? @default(false)
+  founds_transfer           Boolean? @default(false)
+  current_bonusing_settings String?
+  use_aft_game_lock         Boolean? @default(false)
+
+  // MAIN GAME DATA
+  main_game String?
+  game_type String?
+  max_win   Int?
+  min_denom Decimal?
+  max_denom Decimal?
+  min_bet   Decimal?
+  max_bet   Decimal?
+  min_rtp   Decimal?
+  max_rtp   Decimal?
+
+  // Additional fields from the bottom of the form
+  id_prog_ver   String?
+  sas_game_id   String?
+  sas_paytbl_id String?
+  rom_signature String?
+  created_at    DateTime? // If you want to track creation time
+
+  // Relation to SlotMachine (optional, for referential integrity)
+  slotMachine SlotMachine @relation(fields: [slot_machine_id], references: [machine_id], onDelete: Cascade)
+}
+
+model GameCatalog {
+  game_id    Int        @id @default(autoincrement())
+  name       String
+  title      String
+  type       String
+  rtp        String
+  max_bet    String
+  lines      Int
+  reels      Int
+  denom      String
+  status     GameStatus @default(Active)
+  created_at DateTime   @default(now())
+  updated_at DateTime   @default(now()) @updatedAt
+
+  machines MachineGame[]
+}
+
+enum GameStatus {
+  Active
+  Inactive
+  Maintenance
+  Deprecated
+}
+
+model MachineGame {
+  id              Int @id @default(autoincrement())
+  slot_machine_id Int
+  game_id         Int
+
+  slotMachine SlotMachine @relation(fields: [slot_machine_id], references: [machine_id], onDelete: Cascade)
+  game        GameCatalog @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
+
+  // Optionally, add per-machine-game config fields here
+
+  @@unique([slot_machine_id, game_id])
+}
+
+// TableGames: list of games that can be associated with casino tables
+model TableGames {
+  game_id     Int      @id @default(autoincrement())
+  name        String
+  description String?
+  created_at  DateTime @default(now())
+
+  // Many-to-many relation with Table (implicit join table)
+  tables               Table[]
+  // Explicit maintenance/join table for assignments
+  tableGameAssignments TableGameAssignment[]
+
+  @@index([name])
+}
+
+model Table {
+  table_id             Int         @id @default(autoincrement())
+  name                 String
+  status               TableStatus @default(CLOSED)
+  chip_balance         Decimal     @default(0.00)
+  cash_drop_balance    Decimal     @default(0.00)
+  opening_chip_balance Decimal     @default(0.00)
+  last_change          DateTime?
+  changed_by           Int?
+  gaming_day_id        Int
+  floor_id             Int?        @default(0)
+  macaddress           String?     @unique
+  defaultFloat         Boolean     @default(false)
+  threshold            Decimal?    @default(100000.00)
+  registered           Boolean     @default(true)
+  number_of_players    Int         @default(8)
+  currency             String      @default("INR")
+  shape                String      @default("Standard")
+  
+
+  gamingDay              GamingDay               @relation("GamingDay", fields: [gaming_day_id], references: [gaming_day_id])
+  changedBy              User?                   @relation("ChangedBy", fields: [changed_by], references: [user_id], onDelete: SetNull)
+  floatBalances          FloatBalance[]
+  tableChipDenominations TableChipDenomination[]
+  currentPlayers         CurrentTablePlayer[]
+  games                  TableGames[]
+  // Explicit assignments between this table and games
+  tableGameAssignments   TableGameAssignment[]
+  TableTransaction       TableTransaction[]
+  tableVaultRequests     TableVaultRequest[]
+
+  @@index([gaming_day_id])
+  @@index([changed_by])
+}
+
+model GameTransaction {
+  id           Int               @id @default(autoincrement())
+  playerId     Int
+  gameName     String
+  betAmount    Decimal           @db.Decimal(10, 2)
+  resultAmount Decimal?          @db.Decimal(10, 2)
+  outcome      Outcome?
+  status       TransactionStatus @default(Pending)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  // Relations
+  player User @relation(fields: [playerId], references: [user_id], onDelete: Cascade)
+
+  @@index([playerId])
+}
+
+enum Outcome {
+  WIN
+  LOSS
+  DRAW
+  BONUS
+}
+
+enum TableStatus {
+  OPEN
+  TABLE_IN_PLAY
+  SOFT_CLOSED
+  CLOSED
+}
+
+enum RequestType {
+  FILL
+  CASH_OUT
+  TRANSFER
+  RECONCILIATION
+}
+
+enum RequestStatus {
+  PENDING_VAULT_ACTION
+  AWAITING_CAGE_CONFIRMATION
+  AWAITING_TABLE_CONFIRMATION
+  CLOSED_CONFIRMED
+  CLOSED_REJECTED
+}
+
+enum AuditAction {
+  REQUESTED
+  ACCEPTED
+  REJECTED
+  CONFIRMED
+}
+
+model CageVaultAuditLog {
+  audit_id     Int         @id @default(autoincrement())
+  request_id   Int
+  action       AuditAction
+  performed_by Int
+  performed_at DateTime    @default(now())
+  remarks      String?
+
+  // Relations
+  request     CageVaultRequest @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
+  performedBy Employee         @relation(fields: [performed_by], references: [employee_id], onDelete: Cascade)
+}
+
+model CageVaultRequest {
+  request_id         Int           @id @default(autoincrement())
+  request_type       RequestType
+  cage_id            Int
+  vault_id           Int
+  amount             Decimal       @db.Decimal(18, 2)
+  // Split requested amount into cash and chips components so UI/processing can handle separately
+  cash_amount        Decimal?      @default(0.00) @db.Decimal(18, 2)
+  chip_amount        Decimal?      @default(0.00) @db.Decimal(18, 2)
+  // Optional JSON breakdown for chip denominations, e.g. {"1000":2,"500":4}
+  chip_denominations Json?
+  // Optional link to the vault transaction once executed
+  linked_vault_tx_id Int?
+  status             RequestStatus
+  initiated_by       Int
+  reviewed_by        Int? // nullable until Vault responds
+  confirmed_by       Int? // nullable until Cage confirms
+  // Priority for processing: 1=high,2=normal,3=low
+  priority           Int?          @default(2)
+  // Timestamps for lifecycle events
+  performed_at       DateTime?
+  completed_at       DateTime?
+  cancelled_at       DateTime?
+  rejection_reason   String?
+  attachment_path    String?
+  requested_at       DateTime      @default(now())
+  reviewed_at        DateTime?
+  confirmed_at       DateTime?
+  remarks            String?
+
+  // Relations
+  cage        Cage                @relation(fields: [cage_id], references: [cage_id], onDelete: Cascade)
+  initiatedBy Employee            @relation("InitiatedBy", fields: [initiated_by], references: [employee_id], onDelete: Cascade)
+  reviewedBy  Employee?           @relation("ReviewedBy", fields: [reviewed_by], references: [employee_id], onDelete: SetNull)
+  confirmedBy Employee?           @relation("ConfirmedBy", fields: [confirmed_by], references: [employee_id], onDelete: SetNull)
+  auditLogs   CageVaultAuditLog[]
+
+  @@index([cage_id])
+  @@index([vault_id])
+  @@index([status])
+  @@index([requested_at])
+  @@index([linked_vault_tx_id])
+}
+
+model TableVaultAuditLog {
+  audit_id     Int         @id @default(autoincrement())
+  request_id   Int
+  action       AuditAction
+  performed_by Int
+  performed_at DateTime    @default(now())
+  remarks      String?
+
+  // Relations
+  request     TableVaultRequest @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
+  performedBy Employee          @relation(fields: [performed_by], references: [employee_id], onDelete: Cascade)
+}
+
+model TableVaultRequest {
+  request_id         Int           @id @default(autoincrement())
+  request_type       RequestType
+  table_id           Int
+  vault_id           Int
+  amount             Decimal       @db.Decimal(18, 2)
+  cash_amount        Decimal?      @default(0.00) @db.Decimal(18, 2)
+  chip_amount        Decimal?      @default(0.00) @db.Decimal(18, 2)
+  chip_denominations Json?
+  linked_vault_tx_id Int?
+  status             RequestStatus
+  initiated_by       Int
+  reviewed_by        Int?
+  confirmed_by       Int?
+  priority           Int?          @default(2)
+  performed_at       DateTime?
+  completed_at       DateTime?
+  cancelled_at       DateTime?
+  rejection_reason   String?
+  attachment_path    String?
+  requested_at       DateTime      @default(now())
+  reviewed_at        DateTime?
+  confirmed_at       DateTime?
+  remarks            String?
+
+  // Relations
+  table       Table                @relation(fields: [table_id], references: [table_id], onDelete: Cascade)
+  initiatedBy Employee             @relation("InitiatedByTable", fields: [initiated_by], references: [employee_id], onDelete: Cascade)
+  reviewedBy  Employee?            @relation("ReviewedByTable", fields: [reviewed_by], references: [employee_id], onDelete: SetNull)
+  confirmedBy Employee?            @relation("ConfirmedByTable", fields: [confirmed_by], references: [employee_id], onDelete: SetNull)
+  auditLogs   TableVaultAuditLog[]
+
+  @@index([table_id])
+  @@index([vault_id])
+  @@index([status])
+  @@index([requested_at])
+  @@index([linked_vault_tx_id])
+}
+
+model UserPermissions {
+  permission_id Int       @id @default(autoincrement())
+  role_name     String
+  role_group    String?
+  module_name   String
+  can_view      Boolean?  @default(false)
+  can_create    Boolean?  @default(false)
+  can_edit      Boolean?  @default(false)
+  can_action    Boolean?  @default(false)
+  created_at    DateTime? @default(now())
+  updated_at    DateTime? @default(now())
+}
+
+model CasinoSettings {
+  id                            Int       @id @default(autoincrement())
+  casino_name                   String?
+  default_gaming_day_reset_time String?
+  default_currency              String?
+  timezone                      String?
+  contact_email                 String?
+  maintenance_mode              Boolean?  @default(false)
+  logo_url                      String?
+  created_at                    DateTime? @default(now())
+  updated_at                    DateTime? @updatedAt
+}
+
+// List of identification proofs accepted by the casino
+model IdentificationProof {
+  identification_id Int    @id @default(autoincrement())
+  name              String @unique
+
+  @@index([name])
+}
+
+// Default float values (cash/chip) for a CAGE or TABLE
+enum DefaultFloatModule {
+  CAGE
+  TABLE
+}
+
+// Tracks default float amounts for cages or tables
+model DefaultFloat {
+  id                   Int                @id @default(autoincrement())
+  module               DefaultFloatModule
+  reference_id         Int?
+  type                 AssetType
+  amount               Decimal?
+  quantity             Int?
+  chip_denomination_id Int?
+  created_at           DateTime           @default(now())
+  updated_at           DateTime           @updatedAt
+}
+
+enum FloatStatus {
+  OPEN
+  CLOSED
+  RECONCILED
+}
+
+model FloatBalance {
+  id            Int                @id @default(autoincrement())
+  module        DefaultFloatModule
+  cage_id       Int?
+  table_id      Int?
+  gaming_day_id Int
+
+  opening_cash          Decimal  @default(0.00) @db.Decimal(18, 2)
+  opening_chips         Decimal  @default(0.00) @db.Decimal(18, 2)
+  opening_total         Decimal  @default(0.00) @db.Decimal(18, 2)
+  opening_denominations Json?
+  opening_recorded_by   Int?
+  opening_recorded_at   DateTime @default(now())
+
+  closing_cash          Decimal?  @db.Decimal(18, 2)
+  closing_chips         Decimal?  @db.Decimal(18, 2)
+  closing_tito          Decimal?  @db.Decimal(18, 2)
+  closing_online        Decimal?  @db.Decimal(18, 2)
+  closing_total         Decimal?  @db.Decimal(18, 2)
+  closing_denominations Json?
+  closing_recorded_by   Int?
+  closing_recorded_at   DateTime?
+
+  status     FloatStatus @default(OPEN)
+  notes      String?
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  // Structured denomination breakdowns (per-denomination quantities/totals)
+  denominations FloatBalanceDenomination[]
+
+  // Relations
+  gamingDay GamingDay @relation(fields: [gaming_day_id], references: [gaming_day_id], onDelete: Cascade)
+  cage      Cage?     @relation(fields: [cage_id], references: [cage_id], onDelete: Cascade)
+  table     Table?    @relation(fields: [table_id], references: [table_id], onDelete: Cascade)
+  openedBy  Employee? @relation("FloatBalanceOpenedBy", fields: [opening_recorded_by], references: [employee_id], onDelete: SetNull)
+  closedBy  Employee? @relation("FloatBalanceClosedBy", fields: [closing_recorded_by], references: [employee_id], onDelete: SetNull)
+
+  @@index([module])
+  @@index([cage_id])
+  @@index([table_id])
+  @@index([gaming_day_id])
+  @@index([opening_recorded_by])
+  @@index([closing_recorded_by])
+}
+
+// Tracks player entry/exit events at reception
+model PlayerEntryLog {
+  id            Int         @id @default(autoincrement())
+  player_id     Int
+  gaming_day_id Int         @default(1)
+  login_time    DateTime?   @default(now())
+  logout_time   DateTime?
+  tier          String?
+  status        EntryStatus @default(INSIDE)
+
+  player    User      @relation(fields: [player_id], references: [user_id], onDelete: Cascade)
+  gamingDay GamingDay @relation(fields: [gaming_day_id], references: [gaming_day_id], onDelete: Cascade)
+
+  @@index([player_id])
+  @@index([login_time])
+  @@index([gaming_day_id])
+}
+
+enum EntryStatus {
+  INSIDE
+  OUTSIDE
+}
+
+// Cash denominations used across cages, tables and float records
+model CashDenomination {
+  id            Int      @id @default(autoincrement())
+  currency_code String   @default("INR")
+  denomination  Decimal  @db.Decimal(18, 2)
+  description   String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Back-relation to float breakdowns
+  floatBreakdowns FloatBalanceDenomination[]
+
+  @@index([currency_code])
+  @@index([denomination])
+}
+
+// Join table recording per-denomination quantities/totals for a FloatBalance
+model FloatBalanceDenomination {
+  id                   Int @id @default(autoincrement())
+  float_balance_id     Int
+  cash_denomination_id Int
+
+  opening_quantity Int?     @default(0)
+  opening_total    Decimal? @db.Decimal(18, 2)
+  closing_quantity Int?     @default(0)
+  closing_total    Decimal? @db.Decimal(18, 2)
+
+  floatBalance     FloatBalance     @relation(fields: [float_balance_id], references: [id], onDelete: Cascade)
+  cashDenomination CashDenomination @relation(fields: [cash_denomination_id], references: [id], onDelete: Cascade)
+
+  @@unique([float_balance_id, cash_denomination_id])
+  @@index([float_balance_id])
+  @@index([cash_denomination_id])
+}
+
+enum TablePlayerStatus {
+  SEATED
+  PLAYING
+  LEFT
+  BUSTED
+}
+
+// Tracks the current players seated/playing at a casino table for fast reloads
+model CurrentTablePlayer {
+  id            Int               @id @default(autoincrement())
+  table_id      Int
+  player_id     Int?
+  seat_number   Int?
+  joined_at     DateTime          @default(now())
+  last_seen     DateTime?
+  current_stack Decimal           @default(0.00) @db.Decimal(18, 2)
+  current_bet   Decimal           @default(0.00) @db.Decimal(18, 2)
+  is_active     Boolean           @default(true)
+  status        TablePlayerStatus @default(SEATED)
+  notes         String?
+  gaming_day_id Int?
+
+  table     Table      @relation(fields: [table_id], references: [table_id], onDelete: Cascade)
+  player    User?       @relation(fields: [player_id], references: [user_id], onDelete: Cascade)
+  gamingDay GamingDay? @relation(fields: [gaming_day_id], references: [gaming_day_id], onDelete: SetNull)
+
+  @@unique([table_id, seat_number])
+  @@index([table_id])
+  @@index([player_id])
+  @@index([gaming_day_id])
+}
+
+enum TableTransactionType {
+  HANDPAY
+  JACKPOT
+  TICKET_SALE
+  TICKET_REDEEM
+  EXPIRED_TICKET
+  UNREADABLE_TICKET
+  MONEY_DEBIT
+  MONEY_CREDIT
+  FILL
+  CREDIT
+  VAULT_MONEY_FILL
+  VAULT_MONEY_CREDIT
+  CAGE_OPEN
+  CHIP_FILL
+  CHIP_CREDIT
+  TITO_PURCHASE
+  TITO_REDEEM
+  CHIP_PURCHASE
+  CHIP_REDEEM
+  DROPBOX_CASH
+  CHIPS_UPDATE
+  CHIPS_WITHDRAW
+  DROPBOX_CASH_WITHDRAW
+  BUY_IN
+}
+
+model TableTransaction {
+  transaction_id        Int                  @id @default(autoincrement())
+  table_id              Int
+  player_id             Int?
+  amount                Decimal
+  transaction_type      TableTransactionType
+  payment_method        PaymentMethod
+  is_manual             Boolean              @default(false)
+  requires_verification Boolean              @default(false)
+  verified_by           Int?
+  performed_by          Int
+  session_start         DateTime?
+  session_end           DateTime?
+  timestamp             DateTime             @default(now())
+  notes                 String?
+
+  gaming_day_id Int?
+  gamingDay     GamingDay? @relation(fields: [gaming_day_id], references: [gaming_day_id])
+
+  table       Table        @relation(fields: [table_id], references: [table_id])
+  player      User?        @relation("TableTransactionPlayer", fields: [player_id], references: [user_id])
+  verifier    User?        @relation("TableTransactionVerifier", fields: [verified_by], references: [user_id])
+  performedBy User         @relation("TableTransactionPerformedBy", fields: [performed_by], references: [user_id])
+  session_id  Int?
+  session     CageSession? @relation(fields: [session_id], references: [session_id], onDelete: SetNull)
+
+  @@index([table_id])
+  @@index([player_id])
+  @@index([verified_by])
+  @@index([performed_by])
+  @@index([gaming_day_id])
+}
+
+// Maintenance table mapping Tables to TableGames with metadata
+model TableGameAssignment {
+  id          Int      @id @default(autoincrement())
+  table_id    Int
+  game_id     Int
+  assigned_by Int?
+  assigned_at DateTime @default(now())
+  active      Boolean  @default(true)
+  notes       String?
+
+  table      Table      @relation(fields: [table_id], references: [table_id], onDelete: Cascade)
+  game       TableGames @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
+  assignedBy Employee?  @relation(fields: [assigned_by], references: [employee_id], onDelete: SetNull)
+
+  @@unique([table_id, game_id])
+  @@index([table_id])
+  @@index([game_id])
+  @@index([assigned_by])
+}
+
